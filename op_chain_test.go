@@ -20,9 +20,20 @@ import (
 	"github.com/savaki/jq"
 )
 
+type BenchStruct struct {
+	A ABenchStruct
+}
+type ABenchStruct struct {
+	B string
+}
+
 func BenchmarkChain(t *testing.B) {
-	op := jq.Chain(jq.Dot("a"), jq.Dot("b"))
-	data := []byte(`{"a":{"b":"value"}}`)
+	op := jq.Chain(jq.Dot("A"), jq.Dot("B"))
+	data := BenchStruct{
+		A: ABenchStruct{
+			B: "value",
+		},
+	}
 
 	for i := 0; i < t.N; i++ {
 		_, err := op.Apply(data)
@@ -35,35 +46,36 @@ func BenchmarkChain(t *testing.B) {
 
 func TestChain(t *testing.T) {
 	testCases := map[string]struct {
-		In       string
+		In       interface{}
 		Op       jq.Op
 		Expected string
 		HasError bool
 	}{
 		"simple": {
-			In:       `{"hello":"world"}`,
-			Op:       jq.Chain(jq.Dot("hello")),
-			Expected: `"world"`,
+			In:       struct{ Hello string }{Hello: "world"}, //`{"hello":"world"}`
+			Op:       jq.Chain(jq.Dot("Hello")),
+			Expected: "world", //`"world"`,
 		},
 		"nested": {
-			In:       `{"a":{"b":"world"}}`,
-			Op:       jq.Chain(jq.Dot("a"), jq.Dot("b")),
-			Expected: `"world"`,
+			In:       BenchStruct{A: ABenchStruct{B: "world"}}, // `{"a":{"b":"world"}}`,
+			Op:       jq.Chain(jq.Dot("A"), jq.Dot("B")),
+			Expected: "world", //`"world"`,
 		},
 	}
 
 	for label, tc := range testCases {
 		t.Run(label, func(t *testing.T) {
-			data, err := tc.Op.Apply([]byte(tc.In))
-			if tc.HasError {
-				if err == nil {
-					t.FailNow()
-				}
+			data, err := tc.Op.Apply(tc.In)
+			if (err == nil) == tc.HasError {
+				t.Errorf("Expected an error (%v) , got %v ", tc.HasError, err)
+				t.FailNow()
 			} else {
-				if string(data) != tc.Expected {
+				if v, ok := data.(string); !ok || v != tc.Expected {
+					t.Errorf("Expected %v (%T), got %v (%T)", tc.Expected, tc.Expected, data, data)
 					t.FailNow()
 				}
 				if err != nil {
+					t.Errorf("Expected %v (%T), got %v (%T)", tc.Expected, tc.Expected, data, data)
 					t.FailNow()
 				}
 			}

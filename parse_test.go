@@ -15,6 +15,7 @@
 package jq_test
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/savaki/jq"
@@ -22,40 +23,51 @@ import (
 
 func TestParse(t *testing.T) {
 	testCases := map[string]struct {
-		In       string
+		In       interface{}
 		Op       string
-		Expected string
+		Expected interface{}
 		HasError bool
 	}{
 		"simple": {
-			In:       `{"hello":"world"}`,
+			In:       struct{ Hello string }{Hello: "world"}, // `{"hello":"world"}`,
+			Op:       ".Hello",
+			Expected: "world",
+		},
+		"lowercase": {
+			In:       struct{ Hello string }{Hello: "world"}, // `{"hello":"world"}`,
 			Op:       ".hello",
-			Expected: `"world"`,
+			Expected: "world",
 		},
 		"nested": {
-			In:       `{"a":{"b":"world"}}`,
-			Op:       ".a.b",
-			Expected: `"world"`,
+			In:       struct{ A struct{ B string } }{A: struct{ B string }{"world"}}, //`{"a":{"b":"world"}}`,
+			Op:       ".A.B",
+			Expected: "world", // `"world"`
 		},
 		"index": {
-			In:       `["a","b","c"]`,
+			In:       []string{"a", "b", "c"}, //`["a","b","c"]`,
 			Op:       ".[1]",
-			Expected: `"b"`,
+			Expected: "b", // `"b"`
 		},
 		"range": {
-			In:       `["a","b","c"]`,
+			In:       []string{"a", "b", "c"}, //`["a","b","c"]`,
 			Op:       ".[1:2]",
-			Expected: `["b","c"]`,
+			Expected: []string{"b", "c"}, //`["b","c"]`,
 		},
 		"nested index": {
-			In:       `{"abc":"-","def":["a","b","c"]}`,
-			Op:       ".def.[1]",
-			Expected: `"b"`,
+			In: struct {
+				Abc string
+				Def []string
+			}{Abc: "-", Def: []string{"a", "b", "c"}}, //`{"abc":"-","def":["a","b","c"]}`,
+			Op:       ".Def.[1]",
+			Expected: "b", //`"b"`,
 		},
 		"nested range": {
-			In:       `{"abc":"-","def":["a","b","c"]}`,
-			Op:       ".def.[1:2]",
-			Expected: `["b","c"]`,
+			In: struct {
+				Abc string
+				Def []string
+			}{Abc: "-", Def: []string{"a", "b", "c"}}, //`{"abc":"-","def":["a","b","c"]}`,
+			Op:       ".Def.[1:2]",
+			Expected: []string{"b", "c"}, //`["b","c"]`,
 		},
 	}
 
@@ -66,16 +78,27 @@ func TestParse(t *testing.T) {
 				t.FailNow()
 			}
 
-			data, err := op.Apply([]byte(tc.In))
+			data, err := op.Apply(tc.In)
 			if tc.HasError {
 				if err == nil {
+					t.Errorf("Expected an error got %v, %v", data, err)
 					t.FailNow()
 				}
 			} else {
-				if string(data) != tc.Expected {
+				if ty := reflect.TypeOf(data); ty != reflect.TypeOf(tc.Expected) {
+					t.Errorf("ZExpected %v (%T), got %v (%T)", tc.Expected, tc.Expected, data, data)
 					t.FailNow()
 				}
+				if reflect.TypeOf(data).Kind() == reflect.Slice {
+					for i := 0; i < reflect.ValueOf(data).Len() && i < reflect.ValueOf(tc.Expected).Len(); i++ {
+						if reflect.ValueOf(data).Index(i).Interface() != reflect.ValueOf(tc.Expected).Index(i).Interface() {
+							t.Errorf("AExpected %v (%T), got %v (%T)", tc.Expected, tc.Expected, data, data)
+							t.FailNow()
+						}
+					}
+				}
 				if err != nil {
+					t.Errorf("EExpected no error got %v, %v", data, err)
 					t.FailNow()
 				}
 			}
