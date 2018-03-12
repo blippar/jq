@@ -15,7 +15,6 @@
 package scanner
 
 import (
-	"fmt"
 	"testing"
 )
 
@@ -66,7 +65,6 @@ func TestExpect(t *testing.T) {
 
 			} else {
 				if err != nil {
-					fmt.Println(err)
 					t.FailNow()
 				}
 				if pos != len([]byte(tc.Expected)) {

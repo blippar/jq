@@ -15,6 +15,7 @@
 package jq_test
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/savaki/jq"
@@ -27,16 +28,19 @@ type ABenchStruct struct {
 	B string
 }
 
+var noCompilOptiChain reflect.Value
+
 func BenchmarkChain(t *testing.B) {
 	op := jq.Chain(jq.Dot("A"), jq.Dot("B"))
-	data := BenchStruct{
+	data := reflect.ValueOf(BenchStruct{
 		A: ABenchStruct{
 			B: "value",
 		},
-	}
+	})
 
 	for i := 0; i < t.N; i++ {
-		_, err := op.Apply(data)
+		rv, err := op.Apply(data)
+		noCompilOptiChain = rv
 		if err != nil {
 			t.FailNow()
 			return
@@ -65,12 +69,14 @@ func TestChain(t *testing.T) {
 
 	for label, tc := range testCases {
 		t.Run(label, func(t *testing.T) {
-			data, err := tc.Op.Apply(tc.In)
-			if (err == nil) == tc.HasError {
-				t.Errorf("Expected an error (%v) , got %v ", tc.HasError, err)
-				t.FailNow()
+			data, err := tc.Op.Apply(reflect.ValueOf(tc.In))
+			if tc.HasError {
+				if err == nil {
+					t.Errorf("Expected an error (%v) , got %v ", tc.HasError, err)
+					t.FailNow()
+				}
 			} else {
-				if v, ok := data.(string); !ok || v != tc.Expected {
+				if v, ok := data.Interface().(string); !ok || v != tc.Expected {
 					t.Errorf("Expected %v (%T), got %v (%T)", tc.Expected, tc.Expected, data, data)
 					t.FailNow()
 				}

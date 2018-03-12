@@ -21,17 +21,35 @@ import (
 	"github.com/savaki/jq"
 )
 
+var noCompilOptiParse jq.Op
+
+func BenchmarkParse(t *testing.B) {
+	for i := 0; i < t.N; i++ {
+		op, err := jq.Parse(".[1].+= \t\n{\"hello\":[\"\\\"w.o.r.l.d\\\"\"],\"field2\":\"val2=+=+=\"}")
+		noCompilOptiParse = op
+		if err != nil {
+			t.Errorf("%v", err)
+			t.FailNow()
+			return
+		}
+	}
+}
+
 func TestParse(t *testing.T) {
 	testCases := map[string]struct {
-		In       interface{}
-		Op       string
-		Expected interface{}
-		HasError bool
+		In            interface{}
+		Op            string
+		OpArg         []interface{}
+		Expected      interface{}
+		InExpected    interface{}
+		HasError      bool
+		HasParseError bool
 	}{
 		"simple": {
-			In:       struct{ Hello string }{Hello: "world"}, // `{"hello":"world"}`,
-			Op:       ".Hello",
-			Expected: "world",
+			In:         struct{ Hello string }{Hello: "world"}, // `{"hello":"world"}`,
+			Op:         ".Hello",
+			Expected:   "world",
+			InExpected: struct{ Hello string }{Hello: "world"},
 		},
 		"lowercase": {
 			In:       struct{ Hello string }{Hello: "world"}, // `{"hello":"world"}`,
@@ -69,37 +87,244 @@ func TestParse(t *testing.T) {
 			Op:       ".Def.[1:2]",
 			Expected: []string{"b", "c"}, //`["b","c"]`,
 		},
+		"addition nested": {
+			In: &struct {
+				Abc string
+				Def []string
+			}{Abc: "-", Def: []string{"a", "b", "c"}},
+			Op:       ".Def+=%v",
+			OpArg:    []interface{}{[]string{"d"}},
+			Expected: []string{"a", "b", "c", "d"},
+		},
+		"set nested": {
+			In: &struct {
+				Abc string
+				Def []string
+			}{Abc: "-", Def: []string{"a", "b", "c"}},
+			Op:       ".Def=%v",
+			OpArg:    []interface{}{[]string{"d"}},
+			Expected: []string{"d"},
+		},
+		"set no args": {
+			In: &struct {
+				Abc string
+				Def []string
+			}{Abc: "-", Def: []string{"a", "b", "c"}},
+			Op:            ".Def=%v",
+			OpArg:         []interface{}{},
+			Expected:      nil,
+			HasParseError: true,
+		},
+		"addition no args": {
+			In: &struct {
+				Abc string
+				Def []string
+			}{Abc: "-", Def: []string{"a", "b", "c"}},
+			Op:            ".Def+=%v",
+			OpArg:         []interface{}{},
+			Expected:      nil,
+			HasParseError: true,
+		},
+		"set nested json": {
+			In: &struct {
+				Abc string
+				Def []string
+			}{Abc: "-", Def: []string{"a", "b", "c"}},
+			Op:       `.Def=["d"]`,
+			OpArg:    []interface{}{},
+			Expected: []string{"d"},
+			InExpected: struct {
+				Abc string
+				Def []string
+			}{Abc: "-", Def: []string{"d"}},
+		},
+		"add nested slice json": {
+			In: &struct {
+				Abc string
+				Def []string
+			}{Abc: "-", Def: []string{"a", "b", "c"}},
+			Op:       `.Def+=["d"]`,
+			OpArg:    []interface{}{},
+			Expected: []string{"a", "b", "c", "d"},
+			InExpected: struct {
+				Abc string
+				Def []string
+			}{Abc: "-", Def: []string{"a", "b", "c", "d"}},
+		},
+		"add nested map json": {
+			In: &struct {
+				Abc string
+				Def map[string]string
+			}{Abc: "-", Def: map[string]string{"a": "a", "b": "b", "c": "c"}},
+			Op:       `.Def+={"d":"d"}`,
+			OpArg:    []interface{}{},
+			Expected: map[string]string{"a": "a", "b": "b", "c": "c", "d": "d"},
+			InExpected: struct {
+				Abc string
+				Def map[string]string
+			}{Abc: "-", Def: map[string]string{"a": "a", "b": "b", "c": "c", "d": "d"}},
+		},
+		"add nested struct json": {
+			In: &struct {
+				Abc string
+				Def struct {
+					A string
+					B string
+					C string
+					D string
+				}
+			}{Abc: "-", Def: struct {
+				A string
+				B string
+				C string
+				D string
+			}{A: "a", B: "b", C: "c"}},
+			Op:    `.Def+={"d":"d"}`,
+			OpArg: []interface{}{},
+			Expected: struct {
+				A string
+				B string
+				C string
+				D string
+			}{A: "a", B: "b", C: "c", D: "d"},
+			InExpected: struct {
+				Abc string
+				Def struct {
+					A string
+					B string
+					C string
+					D string
+				}
+			}{Abc: "-", Def: struct {
+				A string
+				B string
+				C string
+				D string
+			}{A: "a", B: "b", C: "c", D: "d"}},
+		},
+		"json struct tag json": {
+			In: &struct {
+				Abc string
+				def int
+				Def struct {
+					N int `json:"world"`
+				} `json:"hello"`
+			}{Abc: "-", def: 1, Def: struct {
+				N int `json:"world"`
+			}{42}},
+			Op:       `.hello.world`,
+			OpArg:    []interface{}{},
+			Expected: 42,
+			InExpected: struct {
+				Abc string
+				def int
+				Def struct {
+					N int `json:"world"`
+				} `json:"hello"`
+			}{Abc: "-", def: 1, Def: struct {
+				N int `json:"world"`
+			}{42}},
+		},
+		"parse string json set with dot": {
+			In:         &[]string{"a", "b", "c"},
+			Op:         `.[1]="a.b.c.d"`,
+			Expected:   "a.b.c.d",
+			InExpected: []string{"a", "a.b.c.d", "c"},
+		},
+		"parse array add json": {
+			In:         &[]string{"a", "b", "c"},
+			Op:         `.+=["a.b.c.d"]`,
+			Expected:   []string{"a", "b", "c", "a.b.c.d"},
+			InExpected: []string{"a", "b", "c", "a.b.c.d"},
+		},
+		"parse plus equal string": {
+			In: &[]map[string]interface{}{
+				map[string]interface{}{"a": "b"},
+				map[string]interface{}{"field0": "val0"},
+			},
+			Op: ".[ 1 ] .  += \t\n{   \"hello\" \t \n : [ \"\\\"w.o.r.l.d\\\"\"],\n\t\r\"field2\":\"val2=+=+=\"}",
+			Expected: map[string]interface{}{
+				"field0": "val0",
+				"field2": "val2=+=+=",
+				"hello":  []interface{}{"\"w.o.r.l.d\""},
+			},
+			InExpected: []map[string]interface{}{
+				map[string]interface{}{"a": "b"},
+				map[string]interface{}{
+					"field0": "val0",
+					"field2": "val2=+=+=",
+					"hello":  []interface{}{"\"w.o.r.l.d\""},
+				},
+			},
+		},
+		"can modify value in map": {
+			In: &map[string][]string{
+				"hello": []string{"hello"},
+			},
+			Op:       ".hello+=[\"world\"]",
+			Expected: []string{"hello"},
+			InExpected: map[string][]string{
+				"hello": []string{"hello", "world"},
+			},
+		},
 	}
 
 	for label, tc := range testCases {
 		t.Run(label, func(t *testing.T) {
-			op, err := jq.Parse(tc.Op)
-			if err != nil {
-				t.FailNow()
+			op, err := jq.Parse(tc.Op, tc.OpArg...)
+			if tc.HasParseError {
+				if err == nil {
+					t.Errorf("Expected an error got %v, %v", op, err)
+					t.FailNow()
+				}
+				t.Skip()
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error got %v, %v", op, err)
+					t.FailNow()
+				}
 			}
 
-			data, err := op.Apply(tc.In)
+			data, err := op.Apply(reflect.ValueOf(tc.In))
 			if tc.HasError {
 				if err == nil {
 					t.Errorf("Expected an error got %v, %v", data, err)
 					t.FailNow()
 				}
 			} else {
-				if ty := reflect.TypeOf(data); ty != reflect.TypeOf(tc.Expected) {
-					t.Errorf("ZExpected %v (%T), got %v (%T)", tc.Expected, tc.Expected, data, data)
+				if err != nil {
+					t.Errorf("Expected no error got %v, %v", data, err)
 					t.FailNow()
 				}
-				if reflect.TypeOf(data).Kind() == reflect.Slice {
-					for i := 0; i < reflect.ValueOf(data).Len() && i < reflect.ValueOf(tc.Expected).Len(); i++ {
-						if reflect.ValueOf(data).Index(i).Interface() != reflect.ValueOf(tc.Expected).Index(i).Interface() {
-							t.Errorf("AExpected %v (%T), got %v (%T)", tc.Expected, tc.Expected, data, data)
+				if data.Kind() == reflect.Invalid {
+					t.Errorf("Expected %v (%T), got %v (%T)", tc.Expected, tc.Expected, data, data)
+					t.FailNow()
+				}
+				if data.Type() != reflect.TypeOf(tc.Expected) {
+					t.Errorf("Expected %v (%T), got %v (%T)", tc.Expected, tc.Expected, data, data)
+					t.FailNow()
+				}
+				if data.Kind() == reflect.Slice {
+					for i := 0; i < data.Len() && i < reflect.ValueOf(tc.Expected).Len(); i++ {
+						if data.Index(i).Interface() != reflect.ValueOf(tc.Expected).Index(i).Interface() {
+							t.Errorf("Expected %v (%T), got %v (%T)", tc.Expected, tc.Expected, data, data)
 							t.FailNow()
 						}
 					}
 				}
-				if err != nil {
-					t.Errorf("EExpected no error got %v, %v", data, err)
-					t.FailNow()
+				if tc.InExpected != nil {
+					in := reflect.ValueOf(tc.In)
+					if in.Kind() == reflect.Ptr {
+						if !reflect.DeepEqual(tc.InExpected, in.Elem().Interface()) {
+							t.Errorf("Expected %v (%T), got %v (%T)", tc.InExpected, tc.InExpected, in.Elem().Interface(), in.Elem().Interface())
+							t.FailNow()
+						}
+					} else {
+						if !reflect.DeepEqual(tc.InExpected, tc.In) {
+							t.Errorf("Expected %v (%T), got %v (%T)", tc.InExpected, tc.InExpected, tc.In, tc.In)
+							t.FailNow()
+						}
+					}
 				}
 			}
 		})

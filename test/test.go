@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"log"
+	"reflect"
 
 	"github.com/savaki/jq"
 )
@@ -13,10 +15,11 @@ type testSub struct {
 type test struct {
 	A     string
 	Slice testSub
+	B     map[string]testSub
 }
 
 func main() {
-	op, err := jq.Parse(".Slice.S.[0:2]") // create an Op
+	op, err := jq.Parse(". += %v", map[string]interface{}{"A": "wesh"}) // create an Op
 	if err != nil {
 		panic(err)
 	}
@@ -25,10 +28,25 @@ func main() {
 		Slice: testSub{
 			S: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"},
 		},
+		B: map[string]testSub{
+			"coucou": testSub{
+				S: []string{"0"},
+			},
+		},
 	}
-	value, err := op.Apply(v) // value == '"world"'
+	value, err := op.Apply(reflect.ValueOf(&v))
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(value)
+	log.Printf("value: %v, err %v\n\n", v, err)
+
+	value, err = jq.Chain(jq.Dot("B"), jq.Addition(map[string]testSub{
+		"coucou": testSub{
+			S: []string{"11"},
+		},
+	})).Apply(reflect.ValueOf(&v))
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(value.Interface())
 }

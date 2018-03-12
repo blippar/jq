@@ -21,12 +21,15 @@ import (
 	"github.com/savaki/jq"
 )
 
+var noCompilOptiDot reflect.Value
+
 func BenchmarkDot(t *testing.B) {
 	op := jq.Dot("Hello")
-	data := struct{ Hello string }{Hello: "world"} // {"hello":"world"}
+	data := reflect.ValueOf(struct{ Hello string }{Hello: "world"}) // {"hello":"world"}
 
 	for i := 0; i < t.N; i++ {
-		_, err := op.Apply(data)
+		rv, err := op.Apply(data)
+		noCompilOptiDot = rv
 		if err != nil {
 			t.FailNow()
 			return
@@ -61,7 +64,7 @@ func TestDot(t *testing.T) {
 	for label, tc := range testCases {
 		t.Run(label, func(t *testing.T) {
 			op := jq.Dot(tc.Key)
-			data, err := op.Apply(tc.In)
+			data, err := op.Apply(reflect.ValueOf(tc.In))
 			if tc.HasError {
 				if err == nil {
 					t.Errorf("Expected an error got %v, %v", data, err)
