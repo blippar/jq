@@ -3,36 +3,34 @@ package jq
 import (
 	"reflect"
 	"strings"
+	"sync"
 )
 
-var structToIdx map[string]map[string]jsonToIdx
-
-type jsonToIdx struct {
-	ok  bool
-	val int
-}
-
-func init() {
-	structToIdx = make(map[string]map[string]jsonToIdx)
-}
+var jsonNameToIdx = sync.Map{} // map[reflect.Type]map[string]int{}
 
 func getJSONTag(v reflect.Value, field string) (int, bool) {
+	v = reflect.Indirect(v)
 	if v.Kind() == reflect.Invalid || v.Kind() != reflect.Struct {
 		return 0, false
 	}
 
-	if structToIdx[v.Type().Name()] == nil || v.Type().Name() == "" {
-		structToIdx[v.Type().Name()] = make(map[string]jsonToIdx)
+	// When it is the first time
+	if _, ok := jsonNameToIdx.Load(v.Type()); !ok {
+		buf := map[string]int{}
+		// For each field get the json tag and store the
+		// first of the element (the name) in the map
 		for i := 0; i < v.Type().NumField(); i++ {
 			f := v.Type().Field(i)
 			t := f.Tag.Get("json")
 			strs := strings.Split(t, ",")
 			if strs[0] != "" {
-				structToIdx[v.Type().Name()][strs[0]] = jsonToIdx{true, i}
+				buf[strs[0]] = i
 			}
 		}
+		jsonNameToIdx.LoadOrStore(v.Type(), buf)
 	}
-
-	r := structToIdx[v.Type().Name()][field]
-	return r.val, r.ok
+	buf, _ := jsonNameToIdx.Load(v.Type())
+	fieldM := buf.(map[string]int)
+	val, ok := fieldM[field]
+	return val, ok
 }

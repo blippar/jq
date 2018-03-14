@@ -40,6 +40,7 @@ func BenchmarkSet(t *testing.B) {
 }
 
 func TestSet(t *testing.T) {
+	t.Parallel()
 	testCases := map[string]struct {
 		In         interface{}
 		Op         jq.Op

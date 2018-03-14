@@ -38,6 +38,7 @@ func BenchmarkDot(t *testing.B) {
 }
 
 func TestDot(t *testing.T) {
+	t.Parallel()
 	testCases := map[string]struct {
 		In       interface{}
 		Key      string

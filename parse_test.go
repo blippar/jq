@@ -36,6 +36,7 @@ func BenchmarkParse(t *testing.B) {
 }
 
 func TestParse(t *testing.T) {
+	t.Parallel()
 	testCases := map[string]struct {
 		In            interface{}
 		Op            string
