@@ -1,21 +1,9 @@
 # jq
 
-[![GoDoc](https://godoc.org/github.com/savaki/jq?status.svg)](https://godoc.org/github.com/savaki/jq)
-[![Build Status](https://snap-ci.com/savaki/jq/branch/master/build_image)](https://snap-ci.com/savaki/jq/branch/master)
+Based on https://github.com/savaki/jq
 
-A high performance Golang implementation of the incredibly useful jq command line tool.
+Use `reflect` package and jq syntax to modify golang struct
 
-Rather than marshalling json elements into go instances, jq opts to manipulate the json elements as raw []byte.  This
-is especially useful for apps that need to handle dynamic json data.
-
-Using jq consists of creation an ```Op``` and then calling ```Apply``` on the ```Op``` to transform one []byte into the 
-desired []byte.  Ops may be chained together to form a transformation chain similar to how the command line jq works.   
-
-## Installation
-
-```
-go get github.com/savaki/jq
-```
 
 ## Example
 
@@ -24,16 +12,35 @@ package main
 
 import (
 	"fmt"
+	"reflect"
 
-	"github.com/savaki/jq"
+	"github.com/blippar/jq"
 )
 
 func main() {
-	op, _ := jq.Parse(".hello")           // create an Op
-	data := []byte(`{"hello":"world"}`)   // sample input
-	value, _ := op.Apply(data)            // value == '"world"'
-	fmt.Println(string(value))
+	data := struct {
+		A map[string][]int `json:"field"`
+	}{
+		A: map[string][]int{
+			"here": []int{1},
+		},
+	}
+  
+	// create an Op
+	// op := Dot("field", Dot("here", Addition(json.RawMessage("[3]"))))
+	op, _ := jq.Parse(".field.here+=[3]")
+  
+	// Apply the op to data
+	value, _ := op.Apply(reflect.ValueOf(&data))
+	fmt.Printf("data: %v\n", data)
+	fmt.Printf("value: %v\n", value)
 }
+// value is of type reflect.Value,
+// value.Interface() will return underlying type
+//
+// output:
+// data: {map[here:[1 3]]}
+// value: [1 3]
 ```
 
 ## Syntax
@@ -48,48 +55,65 @@ The initial goal is to support all the selectors the original jq command line su
 | .[0] | value at specified element of array | 
 | .[0:1] | array of specified elements of array, inclusive |
 | .foo.[0] | nested value |
+| .= | set value |
+| .+= | add value to string and slice |
 
 ## Examples
 
 ### Data
-```json
-{
-  "string": "a",
-  "number": 1.23,
-  "simple": ["a", "b", "c"],
-  "mixed": [
-    "a",
-    1,
-    {"hello":"world"}
-  ],
-  "object": {
-    "first": "joe",
-    "array": [1,2,3]
+```go
+struct {
+  String string
+  Number int
+  Simple []string
+  Mixed  []interface{}
+  Struct struct {
+    A string
+    B []int
   }
+  Map         map[string]interface{}
+  WithJSONTag int `json:"tagged"`
+}{
+  String: "a",
+  Number: 1,
+  Simple: []string{"a", "b", "c"},
+  Mixed: []interface{}{
+    "d",
+    2,
+    map[string]string{"hello": "world"},
+  },
+  Struct: struct {
+    A string
+    B []int
+  }{
+    A: "e",
+    B: []int{3, 4, 5},
+  },
+  Map:         map[string]interface{}{"f": []int{6, 7, 8}},
+  WithJSONTag: 9,
 }
 ```
 
 | syntax | value |
 | :--- | :--- |
 | .string | "a" |
-| .number| 1.23 |
+| .number| 1 |
 | .simple | ["a", "b", "c"] |
 | .simple.[0] | "a" |
+| .simple = ["d"] | ["d"] |
+| .simple += ["d"] | ["a", "b", "c", "d"] |
+| .simple = "d" | \<Error\> |
 | .simple.[0:1] | ["a","b"] |
-| .mixed.[1] | 1
-| .object.first | "joe" |
-| .object.array.[2] | 3 |
+| .mixed.[2].hello | "world" |
+| .Struct.a | "e" |
+| .tagged | 9 |
 
-## Performance
+## Addition and Set
 
-```
-BenchmarkAny-8         	20000000	        80.8 ns/op	       0 B/op	       0 allocs/op
-BenchmarkArray-8       	20000000	       108 ns/op	       0 B/op	       0 allocs/op
-BenchmarkFindIndex-8   	10000000	       125 ns/op	       0 B/op	       0 allocs/op
-BenchmarkFindKey-8     	10000000	       125 ns/op	       0 B/op	       0 allocs/op
-BenchmarkFindRange-8   	10000000	       186 ns/op	      16 B/op	       1 allocs/op
-BenchmarkNumber-8      	50000000	        28.9 ns/op	       0 B/op	       0 allocs/op
-BenchmarkObject-8      	20000000	        98.5 ns/op	       0 B/op	       0 allocs/op
-BenchmarkString-8      	30000000	        40.4 ns/op	       0 B/op	       0 allocs/op
-```
+For these two, the parameter reflect.Value can be set ( `val.CanSet() == true` )
+or it is an interface / ptr, result of Elem can be set  ( `val.Elem().CanSet() == true` )
+
+Set `=` will assign the value to another, if they are not of the same type it will return an error.
+
+Addition `+=` will concat the value to the one provided, if they are not of the same type it will return an error
 
