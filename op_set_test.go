@@ -79,6 +79,13 @@ func TestSet(t *testing.T) {
 			Expected:   map[int]int{2: 2},
 			InExpected: map[int]int{2: 2},
 		},
+		"set a field not present": {
+			In:         &struct{ A string }{A: ""},
+			Op:         jq.Set(json.RawMessage(`{"B":"hello"}`)),
+			Expected:   struct{}{},
+			InExpected: struct{}{},
+			HasError:   true,
+		},
 	}
 
 	for label, tc := range testCases {

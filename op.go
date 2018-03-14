@@ -15,6 +15,7 @@
 package jq
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -74,7 +75,7 @@ func Dot(key string, chainFun ...Op) OpFunc {
 		case reflect.Struct:
 			var r reflect.Value
 
-			if idx, ok := getJsonTag(in, key); ok {
+			if idx, ok := getJSONTag(in, key); ok {
 				r = in.Field(idx)
 			} else {
 				r = in.FieldByName(strings.Title(key))
@@ -110,7 +111,9 @@ func Addition(val interface{}, chainFun ...Op) OpFunc {
 		case reflect.Slice:
 			if v, ok := val.(json.RawMessage); ok {
 				slcPtr := reflect.New(in.Type())
-				err := json.Unmarshal(v, slcPtr.Interface())
+				d := json.NewDecoder(bytes.NewReader(v))
+				d.DisallowUnknownFields()
+				err := d.Decode(slcPtr.Interface())
 				if err != nil {
 					return reflect.Value{}, err
 				}
@@ -128,7 +131,9 @@ func Addition(val interface{}, chainFun ...Op) OpFunc {
 		case reflect.Map:
 			if v, ok := val.(json.RawMessage); ok {
 				slcPtr := reflect.New(in.Type())
-				err := json.Unmarshal(v, slcPtr.Interface())
+				d := json.NewDecoder(bytes.NewReader(v))
+				d.DisallowUnknownFields()
+				err := d.Decode(slcPtr.Interface())
 				if err != nil {
 					return reflect.Value{}, err
 				}
@@ -151,7 +156,9 @@ func Addition(val interface{}, chainFun ...Op) OpFunc {
 
 			if v, ok := val.(json.RawMessage); ok {
 				var buf map[string]json.RawMessage
-				err := json.Unmarshal(v, &buf)
+				d := json.NewDecoder(bytes.NewReader(v))
+				d.DisallowUnknownFields()
+				err := d.Decode(&buf)
 				if err != nil {
 					return reflect.Value{}, err
 				}
@@ -213,7 +220,9 @@ func Set(val interface{}, chainFun ...Op) OpFunc {
 
 		// special case to unmashall json
 		if v, ok := val.(json.RawMessage); ok {
-			err := json.Unmarshal(v, in.Addr().Interface())
+			d := json.NewDecoder(bytes.NewReader(v))
+			d.DisallowUnknownFields()
+			err := d.Decode(in.Addr().Interface())
 			if err != nil {
 				return reflect.Value{}, err
 			}

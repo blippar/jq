@@ -16,7 +16,7 @@ func init() {
 	structToIdx = make(map[string]map[string]jsonToIdx)
 }
 
-func getJsonTag(v reflect.Value, field string) (int, bool) {
+func getJSONTag(v reflect.Value, field string) (int, bool) {
 	if v.Kind() == reflect.Invalid || v.Kind() != reflect.Struct {
 		return 0, false
 	}
