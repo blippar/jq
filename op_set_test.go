@@ -19,7 +19,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/savaki/jq"
+	"github.com/blippar/jq"
 )
 
 var noCompilOptiSet reflect.Value

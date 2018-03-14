@@ -18,7 +18,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/savaki/jq"
+	"github.com/blippar/jq"
 )
 
 type BenchStruct struct {
