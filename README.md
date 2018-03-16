@@ -64,7 +64,7 @@ The initial goal is to support all the selectors the original jq command line su
 ```go
 struct {
   String string
-  Number int
+  Number float32
   Simple []string
   Mixed  []interface{}
   Struct struct {
@@ -75,7 +75,7 @@ struct {
   WithJSONTag int `json:"tagged"`
 }{
   String: "a",
-  Number: 1,
+  Number: 1.23,
   Simple: []string{"a", "b", "c"},
   Mixed: []interface{}{
     "d",
@@ -97,7 +97,7 @@ struct {
 | syntax | value |
 | :--- | :--- |
 | .string | "a" |
-| .number| 1 |
+| .number | 1.23 |
 | .simple | ["a", "b", "c"] |
 | .simple.[0] | "a" |
 | .simple = ["d"] | ["d"] |

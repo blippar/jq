@@ -15,7 +15,6 @@
 package jq
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,10 +36,9 @@ func (fn OpFunc) Apply(in reflect.Value) (reflect.Value, error) {
 }
 
 func callChain(v reflect.Value, chainFun ...Op) (reflect.Value, error) {
+	var err error
 	for _, f := range chainFun {
-		var err error
-		v, err = f.Apply(v)
-		if err != nil {
+		if v, err = f.Apply(v); err != nil {
 			return v, err
 		}
 	}
@@ -63,7 +61,10 @@ func Dot(key string, chainFun ...Op) OpFunc {
 		case reflect.Map:
 			var err error
 			mapVal := in.MapIndex(reflect.ValueOf(key))
-			newMapVal := reflect.New(in.MapIndex(reflect.ValueOf(key)).Type())
+			if mapVal.Kind() == reflect.Interface {
+				mapVal = mapVal.Elem()
+			}
+			newMapVal := reflect.New(mapVal.Type())
 			newMapVal.Elem().Set(mapVal)
 			mapVal = newMapVal.Elem()
 			mapVal, err = callChain(mapVal, chainFun...)
@@ -94,71 +95,60 @@ func Dot(key string, chainFun ...Op) OpFunc {
 // Addition adds the val parameter to the provided interface{} (map/slice/struct)
 func Addition(val interface{}, chainFun ...Op) OpFunc {
 	valRef := reflect.ValueOf(val)
+	valRefTyp := valRef.Type()
+	valRefKind := valRef.Kind()
 
 	return func(in reflect.Value) (reflect.Value, error) {
 		// check if in is a pointer/interface
 		// when val is a pointer, set the value of the pointer
 		// when val is a value, set the underlying value of the pointer
-		if (in.Kind() == reflect.Interface || in.Kind() == reflect.Ptr) &&
-			(valRef.Kind() != reflect.Interface && valRef.Kind() != reflect.Ptr) {
-			in = in.Elem()
-		}
+		in = reflect.Indirect(in)
+		inTyp := in.Type()
 		if !in.CanSet() {
 			return reflect.Value{}, ErrCannotSet
 		}
 
 		switch in.Kind() {
 		case reflect.Slice:
-			if v, ok := val.(json.RawMessage); ok {
-				slcPtr := reflect.New(in.Type())
-				d := json.NewDecoder(bytes.NewReader(v))
-				d.DisallowUnknownFields()
-				err := d.Decode(slcPtr.Interface())
+			if ok, res, err := valueFromJSONWithAlloc(val, inTyp); ok {
 				if err != nil {
 					return reflect.Value{}, err
 				}
-				valRef = slcPtr.Elem()
+				valRef = res
+				valRefTyp = inTyp
+				valRefKind = valRef.Kind()
 			}
 
-			if valRef.Kind() != reflect.Slice {
-				return reflect.Value{}, fmt.Errorf("Addition: In is slice but val is: %v", valRef.Kind())
+			if valRefKind != reflect.Slice {
+				return reflect.Value{}, fmt.Errorf("Addition: In is slice but val is: %v", valRefKind)
 			}
-			if in.Type() != valRef.Type() {
-				return reflect.Value{}, fmt.Errorf("Addition: cannot add elem from slice of type %v to slice of type %v", valRef.Type(), in.Type())
+			if inTyp != valRefTyp {
+				return reflect.Value{}, fmt.Errorf("Addition: cannot add elem from slice of type %v to slice of type %v", valRefTyp, inTyp)
 			}
 			in.Set(reflect.AppendSlice(in, valRef))
 			return callChain(in, chainFun...)
 		case reflect.Map:
-			if v, ok := val.(json.RawMessage); ok {
-				slcPtr := reflect.New(in.Type())
-				d := json.NewDecoder(bytes.NewReader(v))
-				d.DisallowUnknownFields()
-				err := d.Decode(slcPtr.Interface())
+			if ok, res, err := valueFromJSONWithAlloc(val, inTyp); ok {
 				if err != nil {
 					return reflect.Value{}, err
 				}
-				valRef = slcPtr.Elem()
+				valRef = res
+				valRefTyp = valRef.Type()
+				valRefKind = valRef.Kind()
 			}
 
-			if valRef.Kind() != reflect.Map {
-				return reflect.Value{}, fmt.Errorf("Addition: In is map but val is: %v", valRef.Kind())
+			if valRefKind != reflect.Map {
+				return reflect.Value{}, fmt.Errorf("Addition: In is map but val is: %v", valRefKind)
 			}
 			for _, k := range valRef.MapKeys() {
-				v := valRef.MapIndex(k)
-				if (v.Kind() == reflect.Interface || v.Kind() == reflect.Ptr) &&
-					(in.Kind() != reflect.Interface && in.Kind() != reflect.Ptr) {
-					v = v.Elem()
-				}
+				v := reflect.Indirect(valRef.MapIndex(k))
 				in.SetMapIndex(k, v)
 			}
 			return callChain(in, chainFun...)
 		case reflect.Struct:
-
 			if v, ok := val.(json.RawMessage); ok {
 				var buf map[string]json.RawMessage
-				d := json.NewDecoder(bytes.NewReader(v))
-				d.DisallowUnknownFields()
-				err := d.Decode(&buf)
+				err := decodeJSON(v, &buf)
 				if err != nil {
 					return reflect.Value{}, err
 				}
@@ -173,23 +163,18 @@ func Addition(val interface{}, chainFun ...Op) OpFunc {
 			}
 
 			// TODO: handle struct to add values to another struct
-			if valRef.Kind() != reflect.Map {
-				return reflect.Value{}, fmt.Errorf("Addition: in is struct and val is not a map: %v", valRef.Kind())
+			if valRefKind != reflect.Map {
+				return reflect.Value{}, fmt.Errorf("Addition: in is struct and val is not a map: %v", valRefKind)
 			}
-			if valRef.Type().Key().Kind() != reflect.String {
-				return reflect.Value{}, fmt.Errorf("Addition: map of value to used with a struct is not a map with string keys: %v", valRef.Type().Key())
+			if valRefTyp.Key().Kind() != reflect.String {
+				return reflect.Value{}, fmt.Errorf("Addition: map of value to used with a struct is not a map with string keys: %v", valRefTyp.Key())
 			}
 
 			for _, k := range valRef.MapKeys() {
 				// TODO: handle JSON values
 				ks := strings.Title(k.String())
 
-				v := valRef.MapIndex(k)
-				if (v.Type().Kind() == reflect.Interface || v.Type().Kind() == reflect.Ptr) &&
-					(valRef.Kind() != reflect.Interface && valRef.Kind() != reflect.Ptr) {
-					v = v.Elem()
-				}
-
+				v := reflect.Indirect(valRef.MapIndex(k))
 				fieldRef := in.FieldByName(ks)
 				if fieldRef.Kind() == reflect.Invalid {
 					return reflect.Value{}, fmt.Errorf("Addition: Field \"%v\" does not exist", ks)
@@ -201,36 +186,32 @@ func Addition(val interface{}, chainFun ...Op) OpFunc {
 			}
 			return callChain(in, chainFun...)
 		}
-		return reflect.Value{}, fmt.Errorf("Unsupported type (%v)", valRef.Type())
+		return reflect.Value{}, fmt.Errorf("Unsupported type (%v)", valRefTyp)
 	}
 }
 
 // Set change the val parameter to the provided interface{} (map/slice/struct)
 func Set(val interface{}, chainFun ...Op) OpFunc {
 	valRef := reflect.ValueOf(val)
+	valRefTyp := valRef.Type()
 
 	return func(in reflect.Value) (reflect.Value, error) {
-		if (in.Kind() == reflect.Interface || in.Kind() == reflect.Ptr) &&
-			(valRef.Kind() != reflect.Interface && valRef.Kind() != reflect.Ptr) {
-			in = in.Elem()
-		}
+		in = reflect.Indirect(in)
+		inTyp := in.Type()
 		if !in.CanSet() {
 			return reflect.Value{}, ErrCannotSet
 		}
 
-		// special case to unmashall json
-		if v, ok := val.(json.RawMessage); ok {
-			d := json.NewDecoder(bytes.NewReader(v))
-			d.DisallowUnknownFields()
-			err := d.Decode(in.Addr().Interface())
+		inAddr := in.Addr()
+		if ok, err := valueFromJSON(val, inAddr.Interface()); ok {
 			if err != nil {
 				return reflect.Value{}, err
 			}
 			return callChain(in, chainFun...)
 		}
 
-		if valRef.Type() != in.Type() {
-			return reflect.Value{}, fmt.Errorf("Different type: %v, %v", valRef.Type(), in.Type())
+		if valRefTyp != inTyp {
+			return reflect.Value{}, fmt.Errorf("Different type: %v, %v", valRefTyp, inTyp)
 		}
 		in.Set(valRef)
 		return callChain(in, chainFun...)
@@ -265,10 +246,8 @@ func Index(index int, chainFun ...Op) OpFunc {
 		}
 	}
 	return func(in reflect.Value) (reflect.Value, error) {
-		if in.Kind() == reflect.Interface || in.Kind() == reflect.Ptr {
-			in = in.Elem()
-		}
-		if in.Type().Kind() != reflect.Array && in.Type().Kind() != reflect.Slice {
+		in = reflect.Indirect(in)
+		if in.Kind() != reflect.Array && in.Kind() != reflect.Slice {
 			return reflect.Value{}, errors.New("Not an array or a slice")
 		}
 		if in.Len() < index {
@@ -292,9 +271,9 @@ func Range(from, to int, chainFun ...Op) OpFunc {
 	}
 
 	return func(in reflect.Value) (reflect.Value, error) {
-		if in.Kind() != reflect.Array &&
-			in.Kind() != reflect.Slice &&
-			in.Kind() != reflect.String {
+		if k := in.Kind(); k != reflect.Array &&
+			k != reflect.Slice &&
+			k != reflect.String {
 			return reflect.Value{}, errors.New("Not an array, a slice or a string")
 		}
 		if in.Len() <= to {

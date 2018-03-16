@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -131,7 +130,6 @@ func escapeJSON(selector string, args []interface{}) (string, []interface{}, err
 // Parse takes a string representation of a selector and returns the corresponding Op definition
 // TODO: move the parsing logic to another package
 func Parse(selector string, args ...interface{}) (Op, error) {
-	log.SetFlags(log.Llongfile)
 	var err error
 	selector, args, err = escapeJSON(selector, args)
 	if err != nil {
@@ -217,7 +215,6 @@ func parseAddition(key string, arg interface{}) (func(op ...Op) Op, bool) {
 	return func(op ...Op) Op {
 		return Addition(arg, op...)
 	}, true
-	// return nil, false
 }
 
 func parseArray(key string) (func(op ...Op) Op, bool) {

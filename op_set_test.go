@@ -87,6 +87,16 @@ func TestSet(t *testing.T) {
 			InExpected: struct{}{},
 			HasError:   true,
 		},
+		"map interface": {
+			In: &map[string]testMapInterface{
+				"first": testMapStruct(1),
+			},
+			Op:       jq.Dot("first", jq.Set(json.RawMessage("2"))),
+			Expected: testMapStruct(2),
+			InExpected: map[string]testMapInterface{
+				"first": testMapStruct(2),
+			},
+		},
 	}
 
 	for label, tc := range testCases {

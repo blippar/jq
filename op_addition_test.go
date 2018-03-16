@@ -35,7 +35,16 @@ func BenchmarkAddition(t *testing.B) {
 		}
 	}
 }
+
+type testMapInterface interface {
+	hello()
+}
+
+type testMapStruct int
+
+func (t testMapStruct) hello() {}
 func TestAddition(t *testing.T) {
+	t.Parallel()
 	testCases := map[string]struct {
 		In         interface{}
 		Op         jq.Op

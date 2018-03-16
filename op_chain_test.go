@@ -49,6 +49,7 @@ func BenchmarkChain(t *testing.B) {
 }
 
 func TestChain(t *testing.T) {
+	t.Parallel()
 	testCases := map[string]struct {
 		In       interface{}
 		Op       jq.Op
