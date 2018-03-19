@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/blippar/jq/utils"
 )
 
 // Op defines a single transformation to be applied to a []byte
@@ -76,7 +78,7 @@ func Dot(key string, chainFun ...Op) OpFunc {
 		case reflect.Struct:
 			var r reflect.Value
 
-			if idx, ok := getJSONTag(in, key); ok {
+			if idx, ok := utils.GetByJSONTag(in, key); ok {
 				r = in.Field(idx)
 			} else {
 				r = in.FieldByName(strings.Title(key))
