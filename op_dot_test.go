@@ -15,17 +15,21 @@
 package jq_test
 
 import (
+	"reflect"
 	"testing"
 
-	"github.com/savaki/jq"
+	"github.com/blippar/jq"
 )
 
+var noCompilOptiDot reflect.Value
+
 func BenchmarkDot(t *testing.B) {
-	op := jq.Dot("hello")
-	data := []byte(`{"hello":"world"}`)
+	op := jq.Dot("Hello")
+	data := reflect.ValueOf(struct{ Hello string }{Hello: "world"}) // {"hello":"world"}
 
 	for i := 0; i < t.N; i++ {
-		_, err := op.Apply(data)
+		rv, err := op.Apply(data)
+		noCompilOptiDot = rv
 		if err != nil {
 			t.FailNow()
 			return
@@ -34,42 +38,46 @@ func BenchmarkDot(t *testing.B) {
 }
 
 func TestDot(t *testing.T) {
+	t.Parallel()
 	testCases := map[string]struct {
-		In       string
+		In       interface{}
 		Key      string
-		Expected string
+		Expected interface{}
 		HasError bool
 	}{
 		"simple": {
-			In:       `{"hello":"world"}`,
-			Key:      "hello",
+			In:       struct{ Hello string }{Hello: "world"}, //`{"hello":"world"}`,
+			Key:      "Hello",
 			Expected: `"world"`,
 		},
 		"key not found": {
-			In:       `{"hello":"world"}`,
+			In:       struct{ Hello string }{Hello: "world"}, // `{"hello":"world"}`,
 			Key:      "junk",
 			HasError: true,
 		},
-		"unclosed value": {
-			In:       `{"hello":"world`,
-			Key:      "hello",
-			HasError: true,
-		},
+		// "unclosed value": {
+		// 	In:       `{"hello":"world`,
+		// 	Key:      "hello",
+		// 	HasError: true,
+		// },
 	}
 
 	for label, tc := range testCases {
 		t.Run(label, func(t *testing.T) {
 			op := jq.Dot(tc.Key)
-			data, err := op.Apply([]byte(tc.In))
+			data, err := op.Apply(reflect.ValueOf(tc.In))
 			if tc.HasError {
 				if err == nil {
+					t.Errorf("Expected an error got %v, %v", data, err)
 					t.FailNow()
 				}
 			} else {
-				if string(data) != tc.Expected {
+				if reflect.TypeOf(data) == reflect.TypeOf(tc.Expected) && data == tc.Expected {
+					t.Errorf("Expected %v (%T), got %v (%T)", tc.Expected, tc.Expected, data, data)
 					t.FailNow()
 				}
 				if err != nil {
+					t.Errorf("Expected no error got %v, %v", data, err)
 					t.FailNow()
 				}
 			}

@@ -19,6 +19,7 @@ import (
 )
 
 func TestRegexp(t *testing.T) {
+	t.Parallel()
 	testCases := map[string]struct {
 		In   string
 		From string

@@ -15,17 +15,32 @@
 package jq_test
 
 import (
+	"reflect"
 	"testing"
 
-	"github.com/savaki/jq"
+	"github.com/blippar/jq"
 )
 
+type BenchStruct struct {
+	A ABenchStruct
+}
+type ABenchStruct struct {
+	B string
+}
+
+var noCompilOptiChain reflect.Value
+
 func BenchmarkChain(t *testing.B) {
-	op := jq.Chain(jq.Dot("a"), jq.Dot("b"))
-	data := []byte(`{"a":{"b":"value"}}`)
+	op := jq.Chain(jq.Dot("A"), jq.Dot("B"))
+	data := reflect.ValueOf(BenchStruct{
+		A: ABenchStruct{
+			B: "value",
+		},
+	})
 
 	for i := 0; i < t.N; i++ {
-		_, err := op.Apply(data)
+		rv, err := op.Apply(data)
+		noCompilOptiChain = rv
 		if err != nil {
 			t.FailNow()
 			return
@@ -34,36 +49,40 @@ func BenchmarkChain(t *testing.B) {
 }
 
 func TestChain(t *testing.T) {
+	t.Parallel()
 	testCases := map[string]struct {
-		In       string
+		In       interface{}
 		Op       jq.Op
 		Expected string
 		HasError bool
 	}{
 		"simple": {
-			In:       `{"hello":"world"}`,
-			Op:       jq.Chain(jq.Dot("hello")),
-			Expected: `"world"`,
+			In:       struct{ Hello string }{Hello: "world"}, //`{"hello":"world"}`
+			Op:       jq.Chain(jq.Dot("Hello")),
+			Expected: "world", //`"world"`,
 		},
 		"nested": {
-			In:       `{"a":{"b":"world"}}`,
-			Op:       jq.Chain(jq.Dot("a"), jq.Dot("b")),
-			Expected: `"world"`,
+			In:       BenchStruct{A: ABenchStruct{B: "world"}}, // `{"a":{"b":"world"}}`,
+			Op:       jq.Chain(jq.Dot("A"), jq.Dot("B")),
+			Expected: "world", //`"world"`,
 		},
 	}
 
 	for label, tc := range testCases {
 		t.Run(label, func(t *testing.T) {
-			data, err := tc.Op.Apply([]byte(tc.In))
+			data, err := tc.Op.Apply(reflect.ValueOf(tc.In))
 			if tc.HasError {
 				if err == nil {
+					t.Errorf("Expected an error (%v) , got %v ", tc.HasError, err)
 					t.FailNow()
 				}
 			} else {
-				if string(data) != tc.Expected {
+				if v, ok := data.Interface().(string); !ok || v != tc.Expected {
+					t.Errorf("Expected %v (%T), got %v (%T)", tc.Expected, tc.Expected, data, data)
 					t.FailNow()
 				}
 				if err != nil {
+					t.Errorf("Expected %v (%T), got %v (%T)", tc.Expected, tc.Expected, data, data)
 					t.FailNow()
 				}
 			}
